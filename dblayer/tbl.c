@@ -9,6 +9,7 @@
 
 #define SLOT_COUNT_OFFSET 2
 #define MAX_FNAME_LENGTH 80 /* used the same size for NAX file size as in test1.c */
+#define SLOT_ENTRY_SIZE 4   /* 2 bytes offset + 2 bytes length */
 
 #define checkerr(err)           \
     {                           \
@@ -18,11 +19,28 @@
             exit(EXIT_FAILURE); \
         }                       \
     }
+static int slotDirAddr(int slot)
+{
+    return PF_PAGE_SIZE - (slot + 1) * SLOT_ENTRY_SIZE;
+}
 
-int getLen(int slot, byte *pageBuf);
-int getNumSlots(byte *pageBuf);
-void setNumSlots(byte *pageBuf, int nslots);
-int getNthSlotOffset(int slot, char *pageBuf);
+int getLen(int slot, byte *pageBuf)
+{
+    return (int)DecodeShort(pageBuf + slotDirAddr(slot) + 2);
+}
+
+int getNumSlots(byte *pageBuf)
+{
+    return (int)DecodeShort(pageBuf + SLOT_COUNT_OFFSET);
+}
+void setNumSlots(byte *pageBuf, int nslots)
+{
+    EncodeShort((short)nslots, pageBuf + SLOT_COUNT_OFFSET);
+}
+int getNthSlotOffset(int slot, char *pageBuf)
+{
+    return (int)DecodeShort((byte *)pageBuf + slotDirAddr(slot));
+}
 
 /**
    Opens a paged file, creating one if it doesn't exist, and optionally
@@ -71,7 +89,7 @@ int Table_Open(char *dbname, Schema *schema, bool overwrite, Table **ptable)
 
     *ptable = table; // return the table only if creation was successfull.
 
-    return return_code;
+    return PFE_OK;
 }
 
 void Table_Close(Table *tbl)
