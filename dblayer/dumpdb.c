@@ -5,7 +5,7 @@
 #include "util.h"
 #include "../pflayer/pf.h"
 #include "../amlayer/am.h"
-#define checkerr(err) {if (err < 0) {PF_PrintError(); exit(1);}}
+#define checkerr(err) {if (err < 0) {PF_PrintError("error"); exit(1);}}
 
 
 void
@@ -13,7 +13,35 @@ printRow(void *callbackObj, RecId rid, byte *row, int len) {
     Schema *schema = (Schema *) callbackObj;
     byte *cursor = row;
 
-    UNIMPLEMENTED;
+    for (int i = 0; i < schema->numColumns; i++){
+        ColumnDesc *col = schema->columns[i];
+
+        if(col->type == INT){
+
+            int val = DecodeInt(cursor);
+            printf("%d", val);
+            cursor += 4;
+        }
+        else if(col->type == LONG){
+            
+            long long val = DecodeLong(cursor);
+            printf("%lld", val);
+            cursor += 8;
+        }
+        else{
+
+            short strLen = DecodeShort(cursor);
+            char buf[PF_PAGE_SIZE];
+            DecodeCString(cursor, buf, sizeof(buf));
+            printf("%s", buf);
+            cursor += strLen + 2;
+        }
+        if( i < schema->numColumns - 1){
+            printf(",");
+        }
+        
+    } 
+    printf("\n");
 }
 
 #define DB_NAME "data.db"
@@ -21,16 +49,24 @@ printRow(void *callbackObj, RecId rid, byte *row, int len) {
 	 
 void
 index_scan(Table *tbl, Schema *schema, int indexFD, int op, int value) {
-    UNIMPLEMENTED;
-    /*
-    Open index ...
-    while (true) {
-	find next entry in index
-	fetch rid from table
-        printRow(...)
+   int scanDesc = AM_OpenIndexScan(indexFD, 'i', sizeof(int), op, (char *)&value);
+   if(scanDesc < 0){
+        AM_PrintError("AM_OpenIndexScan failed");
+        exit(1);
+   }
+   int rid;
+   while((rid = AM_FindNextEntry(scanDesc )) != AME_EOF){
+
+    if(rid < 0){
+        AM_PrintError("AM_FindNextEntry failed");
+        exit(1);
     }
-    close index ...
-    */
+    byte buffer[PF_PAGE_SIZE];
+    int len = Table_Get(tbl, rid, buffer, sizeof(buffer));
+    checkerr(len);
+    printRow(schema, rid, buffer, len);
+   }
+   AM_CloseIndexScan(scanDesc);
 }
 
 int
@@ -39,10 +75,11 @@ main(int argc, char **argv) {
     Schema *schema = parseSchema(schemaTxt);
     Table *tbl;
 
-    UNIMPLEMENTED;
+    int err = Table_Open(DB_NAME, schema, false, &tbl);
+    checkerr(err);
     if (argc == 2 && *(argv[1]) == 's') {
-	UNIMPLEMENTED;
-	// invoke Table_Scan with printRow, which will be invoked for each row in the table.
+        Table_Scan(tbl, schema, printRow);
+
     } else {
 	// index scan by default
 	int indexFD = PF_OpenFile(INDEX_NAME);
@@ -54,4 +91,5 @@ main(int argc, char **argv) {
 	index_scan(tbl, schema, indexFD, GREATER_THAN, 100000);
     }
     Table_Close(tbl);
+    return 0;
 }
