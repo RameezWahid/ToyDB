@@ -37,6 +37,31 @@ int encode(Schema *sch, char **fields, byte *record, int spaceLeft)
     //        INT : EncodeInt
     //        LONG: EncodeLong
     // return the total number of bytes encoded into record
+    int offset = 0;
+    for (int i = 0; i < sch->numColumns; i++)
+    {
+        int bytesEncoded = 0;
+        switch (sch->columns[i]->type)
+        {
+        case VARCHAR:
+            bytesEncoded = EncodeCString(fields[i], record + offset, spaceLeft - offset);
+            break;
+        case INT:
+            bytesEncoded = EncodeInt(atoi(fields[i]), record + offset);
+            break;
+        case LONG:
+            bytesEncoded = EncodeLong(atoll(fields[i]), record + offset);
+            break;
+        default:
+            return -1;
+        }
+        offset += bytesEncoded;
+        if (offset > spaceLeft)
+        {
+            return -1;
+        }
+    }
+    return offset;
 }
 
 Schema *
@@ -62,6 +87,21 @@ loadCSV()
     Schema *sch = parseSchema(line);
     Table *tbl;
 
+    int err = Table_Open(DB_NAME, sch, true, &tbl);
+    checkerr(err);
+    // clean up any index leftover from previous runs
+    AM_DestroyIndex(DB_NAME, 0);
+
+    err = AM_CreateIndex(DB_NAME, 0, 'i', sizeof(int));
+    checkerr(err);
+
+    int indexFD = PF_OpenFile(INDEX_NAME);
+    if (indexFD < 0)
+    {
+        PF_PrintError();
+        exit(EXIT_FAILURE);
+    }
+
     // UNIMPLEMENTED;
 
     char *tokens[MAX_TOKENS];
@@ -73,7 +113,8 @@ loadCSV()
         assert(n == sch->numColumns);
         int len = encode(sch, tokens, record, sizeof(record));
         RecId rid;
-
+        err = Table_Insert(tbl, (byte *)record, len, &rid);
+        checkerr(err);
         // UNIMPLEMENTED;
 
         printf("%d %s\n", rid, tokens[0]);
@@ -83,6 +124,7 @@ loadCSV()
 
         // UNIMPLEMENTED;
         // Use the population field as the field to index on
+        err = AM_InsertEntry(indexFD, 'i', sizeof(int), (char *)&population, rid);
 
         checkerr(err);
     }
@@ -95,5 +137,7 @@ loadCSV()
 
 int main()
 {
+    PF_Init();
     loadCSV();
+    return 0;
 }
